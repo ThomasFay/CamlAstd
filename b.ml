@@ -6,8 +6,10 @@ type expression =
 |And of (expression * expression)
 |Or of (expression * expression)
 |Guard of string
-|Comparison of (string * string list * string);;
-
+|Comparison of (string * string list * string)
+|ForAll of string list * expression * expression
+|Exists of string list * expression
+|In of string * string;;
 
 (*Définition de la substitution :
 -Soit c'est une affectation : on affecte à la variable (string1), paramétrée (string list) une valeur (string2)
@@ -113,9 +115,12 @@ let rec printExpr n expr = match expr with
   |And (p1,p2) -> printExpr n p1 ^ " &\n" ^ printExpr n p2
   |Or (p1,p2) -> "(" ^ printExpr n p1 ^ ") or\n(" ^ printExpr n p2 ^ ")"
   |Guard g -> printTab n ^ g
-  |Comparison (var,params,value) -> match params with
+  |Comparison (var,params,value) -> (match params with
     |[] -> printTab n ^ var ^ " = " ^ value
-    |h::t -> printTab n ^ var ^ "(" ^ printParams params ^ ") = " ^ value;;
+    |h::t -> printTab n ^ var ^ "(" ^ printParams params ^ ") = " ^ value)
+  |Exists (vars,expression) -> printTab n ^ "#(" ^ printParams vars ^ ").\n(" ^ printExpr n expression ^ ")"
+  |ForAll (vars,expr1,expr2) -> printTab n ^ "!(" ^ printParams vars ^ ").\n(" ^ printExpr n expr1 ^ " =>\n" ^ printExpr n expr2 ^ ")"
+  |In (var,set) -> var ^ " : " ^ set
 
 (*Affiche la précondition d'une fonction*)
 
