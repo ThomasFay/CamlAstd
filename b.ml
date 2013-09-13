@@ -11,15 +11,19 @@ type expression =
 |Exists of string list * expression
 |In of string * string;;
 
+type relation =
+|Name of string
+|Lambda of string * expression * string
+|OverLoad of relation * relation;;
+
 (*Définition de la substitution :
 -Soit c'est une affectation : on affecte à la variable (string1), paramétrée (string list) une valeur (string2)
 -Soit c'est un Select dont la condition est l'expression et dont le then est une nouvelle substitution
-
---------> AJOUTER LE FAIT QU'UNE SUBSTITUTION PEUT ÊTRE UNE LISTE DE SELECT (SELECT WHEN)
 *)
 
 type substitution =
 |Affectation of (string * (string list) * string) list
+|RelationAffectation of (relation * relation)
 |Select of (expression * substitution) list;;
 
 (*Définition d'une opération qui a
@@ -122,6 +126,11 @@ let rec printExpr n expr = match expr with
   |ForAll (vars,expr1,expr2) -> printTab n ^ "!(" ^ printParams vars ^ ").\n(" ^ printExpr n expr1 ^ " =>\n" ^ printExpr n expr2 ^ ")"
   |In (var,set) -> var ^ " : " ^ set
 
+let rec printRelation rel = match rel with
+  |Name s -> s
+  |Lambda (var,expr,newVal) ->"%" ^ var ^ ".(\n" ^ printExpr 0 expr ^ " | " ^ newVal ^ ")"
+  |OverLoad (rel1,rel2) -> printRelation rel1 ^ " <+ " ^ printRelation rel2;;
+
 (*Affiche la précondition d'une fonction*)
 
 let printPre pre = printExpr 2 pre;;
@@ -142,7 +151,8 @@ let rec printSelect n clause = match clause with
   |(cond,action)::tail -> printTab n ^ "WHEN\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail
 and printThen n thenn = match thenn with
   |Affectation l -> printAffectationList n l
-  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail ^ printTab n ^ "END\n";;
+  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail ^ printTab n ^ "END\n"
+  |RelationAffectation (rel1,rel2) -> printRelation rel1 ^ " := " ^ printRelation rel2;;
 
 (*Affiche une opération simple*)
 
