@@ -4,6 +4,8 @@
 exception TheAstdIsNotWellFounded;;
 exception AddParamToNonExistentVariable;;
 exception NoFinalState;;
+exception NotFound;;
+exception NotAnAutomaton;;
 
 (*
 Fonction addSetToSetList
@@ -68,6 +70,32 @@ let rec addOpToOpList_aux name param pre post opList = match opList with
     else
       ((nameOp,paramOp,preOp,(Select l))::(addOpToOpList_aux name param pre post tail));;
 
+
+let rec isInStringList name strList = match strList with
+  |[] -> false
+  |head::tail -> head = name or isInStringList name tail;;
+
+let rec final astd name = match astd with
+  |Elem s -> Comparison (("State_" ^ name),[],s)
+  |Automaton (nameAstd,_,_,fState,dFState,_) -> match (fState,dFState) with
+    |[],[] -> raise NoFinalState
+    |[],listDFState -> getFinalFromFinalStateList listDFState nameAstd
+    |listFState, [] -> getFinalFromFinalStateList listFState nameAstd
+    |fState,dFState -> And (getFinalFromFinalStateList fState nameAstd,getFinalFromFinalStateList dFState nameAstd)
+and getFinalFromFinalStateList fStateList name = match fStateList with
+  |[fState] -> final fState name
+  |head::tail -> And (final head name,getFinalFromFinalStateList tail name);;
+
+let rec getAstdFromStateList stateList name = match stateList with
+  |[] -> raise NotFound
+  |astd::tail -> match astd with
+    |Elem s -> if s = name then Elem s else getAstdFromStateList tail name
+    |Automaton (nameAstd,_,_,_,_,_) -> if name = nameAstd then astd else getAstdFromStateList tail name;;
+
+let rec getAstdFromName nameAstd astd = match astd with
+  |Elem s -> raise NotAnAutomaton
+  |Automaton (name,stateList,_,_,_,_) -> getAstdFromStateList stateList nameAstd;;
+
 (*
 Fonction addOpToOpList :
 Objectif : Ajouter à la liste des opérations <opList> l'opération correspondant à la transition <trans> dans l'ASTD de nom <nameAstd>. Elle construit également les éléments pour la construction des arguments <pre> et <post> de la fonction addOpToOpList
@@ -76,13 +104,16 @@ Arguments :
 - trans : la transition issue de la liste des transition de l'ASTD
 *)
 
-let addOpToOpList nameAstd trans opList = match trans with
+let addOpToOpList nameAstd trans opList astd = match trans with
   |Loc (name,param,from,toS,gu,finale) -> 
     let pre = (if gu = ""
       then
-	Comparison ("State_" ^ nameAstd,[],from) 
+	  Comparison ("State_" ^ nameAstd,[],from)
       else
 	And (Guard gu,Comparison("State_" ^ nameAstd,[],from))) in
+    let pre = if finale then And (final (getAstdFromName from astd) from,pre)
+      else pre
+    in
     let post = AffectationSub [VarAffect ("State_" ^ nameAstd,[],toS)] in
     addOpToOpList_aux name param pre post opList
   |Tsub (name,param,from,toSup,toState,gu,finale) ->
@@ -91,6 +122,9 @@ let addOpToOpList nameAstd trans opList = match trans with
 	Comparison ("State_" ^ nameAstd,[],from)
       else
 	And (Guard gu,Comparison ("State_" ^ nameAstd,[],from)))
+    in
+    let pre = if finale then And (final (getAstdFromName from astd) from, pre)
+      else pre
     in
     let post = AffectationSub [VarAffect ("State_" ^ nameAstd,[],toSup);VarAffect ("State_" ^ toSup,[],toState)]
     in
@@ -101,6 +135,9 @@ let addOpToOpList nameAstd trans opList = match trans with
 	And (Comparison ("State_" ^ nameAstd,[],fromSup),(Comparison ("State_" ^ fromSup,[],fromState)))
       else
 	And (Guard gu,And (Comparison ("State_" ^ nameAstd,[],fromSup),(Comparison ("State_" ^ fromSup,[],fromState)))))
+    in
+    let pre = if finale then And (final (getAstdFromName fromState (getAstdFromName fromSup astd)) fromState,pre)
+      else pre
     in
     let post = AffectationSub [VarAffect ("State_" ^ nameAstd,[],toS)]
     in addOpToOpList_aux name param pre post opList;;
@@ -115,23 +152,9 @@ Argument :
 - opList : La liste de opérations qu'on souhaite construire
 *)
 
-let rec getOperationList nameAstd transList opList = match transList with
+let rec getOperationList nameAstd transList opList astd = match transList with
   |[] -> opList
-  |trans::tail -> getOperationList nameAstd tail (addOpToOpList nameAstd trans opList);;
-
-let rec isInStringList name strList = match strList with
-  |[] -> false
-  |head::tail -> head = name or isInStringList name tail;;
-
-let rec final astd name = match astd with
-  |Elem s -> Comparison (("State_" ^ name),[],s)
-  |Automaton (nameAstd,_,_,fState,dFState,_) -> match (fState,dFState) with
-    |[],listDFState -> getFinalFromFinalStateList listDFState nameAstd
-    |listFState, [] -> getFinalFromFinalStateList listFState nameAstd
-    |fState,dFState -> And (getFinalFromFinalStateList fState nameAstd,getFinalFromFinalStateList dFState nameAstd)
-and getFinalFromFinalStateList fStateList name = match fStateList with
-  |[fState] -> final fState name
-  |head::tail -> And (final head name,getFinalFromFinalStateList tail name);;
+  |trans::tail -> getOperationList nameAstd tail (addOpToOpList nameAstd trans opList astd) astd;;
 
 let rec initOf exp nameOfSAstd initStateVal = match exp with
   |And (exp1,exp2) -> And (initOf exp1 nameOfSAstd initStateVal,initOf exp2 nameOfSAstd initStateVal)
@@ -148,13 +171,13 @@ let rec getInitOf astd = match astd with
 let getInitNameOf astd = getNameOf (getInitOf astd);;
 
 let rec traduction_aux astd nameAstdSup setsList varList opeList= match astd with
-  |Elem e -> (addSetToSetList nameAstdSup e setsList),[],[]
+  |Elem e -> (addSetToSetList nameAstdSup e setsList),varList,opeList
   |Automaton (name,stateList,transitionList,sfList,dfList,initialState) ->
     let (setsListInd,varListInd,opeListInd) =
       traductionStateList stateList name setsList varList opeList in
       ((addSetToSetList nameAstdSup name setsListInd),
       (addVarToVarList name varListInd (getNameOf initialState)),
-      (getOperationList name transitionList opeListInd))
+      (getOperationList name transitionList opeListInd astd))
 and traductionStateList stateList nameAstdSup setsList varList opeList = match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =
