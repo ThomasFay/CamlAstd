@@ -119,90 +119,9 @@ let rec getOperationList nameAstd transList opList = match transList with
   |[] -> opList
   |trans::tail -> getOperationList nameAstd tail (addOpToOpList nameAstd trans opList);;
 
-(*
-Fonction addParamToVarList :
-
-*)
-
-let rec addParamToVarList var typeVar nameAstd varList = match varList with
-  |[] -> raise AddParamToNonExistentVariable
-  |(name,params,setType,initValue)::tail ->
-    if name = "State_" ^ nameAstd then (name,typeVar::params,setType,initValue)::tail
-    else (name,params,setType,initValue)::(addParamToVarList var typeVar nameAstd tail);;
-
 let rec isInStringList name strList = match strList with
   |[] -> false
   |head::tail -> head = name or isInStringList name tail;;
-
-
-(*let rec modifyAffectation l expr result = match l with
-  |[] -> []
-  |VarAffect(->
-
-let rec modifyPost post expr= match post with
-  |Select l -> modifySelect l
-  |AffectationSub l -> modifyAffectation l expr
-and modifySelect l = match l with
-  |[] -> Select []
-  |[pre,post] -> modifyPost post pre
-  |(pre,post)::tail -> (modifyPost post pre)
-*)
-
-let rec modifyPost post = post;;
-
-let rec addParamToExpr exp var paramVar = match exp with
-  |And (expr1,expr2) -> And ((addParamToExpr expr1 var paramVar),(addParamToExpr expr2 var paramVar))
-  |Or (expr1,expr2) -> Or ((addParamToExpr expr1 var paramVar),(addParamToExpr expr2 var paramVar))
-  |Guard s -> Guard s
-  |Comparison (name,params,value) -> if name = paramVar then Comparison (name,(var::params),value) else Comparison (name,params,value);;
-
-let rec modifyQSynchOperation op var typeVar paramVar =
-  let name,params,pre,post = op in
-  name,params,ForAll ([var],In (var,typeVar), addParamToExpr pre var paramVar),modifyPost post;;
-
-let rec addParamToAffectationList affList var paramVar = match affList with
-  |[] -> raise AddParamToNonExistentVariable
-  |(VarAffect (name,params,value))::tail -> if name = paramVar then (VarAffect (name,(var::params),value))::tail else (VarAffect (name,params,value))::(addParamToAffectationList affList var paramVar)
-  |(RelAffect (rel1,rel2))::tail -> (RelAffect (rel1,rel2))::(addParamToAffectationList tail var paramVar);;
-
-let rec addParamToSubstitution sub var paramVar = match sub with
-  |AffectationSub l -> AffectationSub (addParamToAffectationList l var paramVar)
-  |Select l -> Select (addParamToSelectList l var paramVar)
-and addParamToSelectList list var paramVar = match list with
-  |[] -> []
-  |(expr,subs)::tail -> (addParamToExpr expr var paramVar, addParamToSubstitution subs var paramVar)::addParamToSelectList tail var paramVar;;
-
-let rec addSynchToOp var delta nameOfAstd typeVar opeList = match opeList with
-  |[] -> []
-  |(name,param,pre,post)::tail ->
-    if isInStringList name delta
-    then
-      (modifyQSynchOperation
-	 (name,param,pre,post)
-	 var
-	 typeVar
-	 ("State_" ^ nameOfAstd))::
-	addSynchToOp var delta nameOfAstd typeVar tail 
-    else
-      (name,
-       param,
-       addParamToExpr
-	 pre
-	 var
-	 ("State_" ^ nameOfAstd),
-       addParamToSubstitution
-	 post
-	 var
-	 ("State_" ^ nameOfAstd))::
-	(addSynchToOp var delta nameOfAstd typeVar tail);;
-
-let rec addNonEnumerateSet set setList = match setList with
-  |[] -> [set,[]]
-  |(nameSet,value)::tail -> if set = nameSet then (nameSet,value)::tail else (nameSet,value)::addNonEnumerateSet set tail;;
-
-let addKleeneSet setList = ("KleeneState",["started";"notstarted"])::setList;;
-
-let addKleeneVar varList name = ("StateKleene_" ^ name,[],"KleeneState","notstarted")::varList;;
 
 let rec final astd name = match astd with
   |Elem s -> Comparison (("State_" ^ name),[],s)
@@ -220,14 +139,6 @@ let rec initOf exp nameOfSAstd initStateVal = match exp with
   |Guard gu -> Guard gu
   |Comparison (name,param,value) -> if name = "State_" ^ nameOfSAstd then Comparison (initStateVal,[],value) else Comparison (name,param,value);;
 
-let rec modifyExprKleene exp astd name nameOfSAstd initStateVal nameOfAstd = Or (And (Or (final astd nameOfSAstd,Comparison ("StateKleene_" ^ nameOfAstd,[],"notstarted")),initOf exp nameOfSAstd initStateVal), exp);;
-
-let rec modifyPostKleene post = post;;
-
-let rec addKleeneCondition opList astd nameOfAstd nameOfSAstd initStateVal= match opList with 
- |[] -> []
-  |(name,param,pre,post)::tail -> (name,param,modifyExprKleene pre astd name nameOfSAstd initStateVal nameOfAstd,modifyPostKleene post)::(addKleeneCondition tail astd name nameOfSAstd initStateVal);;
-
 let rec getInitOf astd = match astd with
   |Elem e -> Elem e
   |Automaton (_,_,_,_,_,init) -> init
@@ -244,12 +155,6 @@ let rec traduction_aux astd nameAstdSup setsList varList opeList= match astd wit
       ((addSetToSetList nameAstdSup name setsListInd),
       (addVarToVarList name varListInd (getNameOf initialState)),
       (getOperationList name transitionList opeListInd))
-  |QSynch (name,var,typeVar,delta,sAstd) -> 
-    let (setsListInd,varListInd,opeListInd) = traduction_aux sAstd (getNameOf sAstd) setsList varList opeList in
-    (addNonEnumerateSet typeVar setsListInd,addParamToVarList var typeVar (getNameOf sAstd) varListInd,addSynchToOp var delta (getNameOf sAstd) typeVar opeListInd)
-  |Kleene (name,sAstd) ->
-    let (setsListInd,varListInd,opeListInd) = traduction_aux sAstd (getNameOf sAstd) setsList varList opeList in
-    ((addKleeneSet setsListInd),(addKleeneVar varListInd name),addKleeneCondition opeListInd sAstd name (getNameOf sAstd) (getInitNameOf sAstd))
 and traductionStateList stateList nameAstdSup setsList varList opeList = match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =
