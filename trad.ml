@@ -6,6 +6,7 @@ exception AddParamToNonExistentVariable;;
 exception NoFinalState;;
 exception NotFound;;
 exception NotAnAutomaton;;
+exception NoPrecondition;;
 
 (*
 Fonction addSetToSetList
@@ -70,10 +71,26 @@ let rec addOpToOpList_aux name param pre post opList = match opList with
     else
       ((nameOp,paramOp,preOp,(Select l))::(addOpToOpList_aux name param pre post tail));;
 
+(*
+Fonction isInStringListe
+Objectif : Fonciton qui permet de vérifier si un élément est dans une liste
+Arguments :
+- name : élément à rechercher dans la liste
+- liste : liste dans laquel rechercher l'élément
 
-let rec isInStringList name strList = match strList with
+
+let rec isInList name liste = match liste with
   |[] -> false
-  |head::tail -> head = name or isInStringList name tail;;
+  |head::tail -> head = name or isInList name tail;;
+*)
+
+(*
+Fonction final 
+Objectif : L'objectif de cette fonction est de renvoyer pour un astd l'expression qui exprime le fait que cet astd soit final.
+Arguments :
+astd : l'astd dont on souhaite trouver l'état final
+name : le nom de l'astd dont on cherche l'état final
+*)
 
 let rec final astd name = match astd with
   |Elem s -> Comparison (("State_" ^ name),[],s)
@@ -86,15 +103,44 @@ and getFinalFromFinalStateList fStateList name = match fStateList with
   |[fState] -> final fState name
   |head::tail -> And (final head name,getFinalFromFinalStateList tail name);;
 
+(*
+Fonction getAstdFromStateListe
+Objectif : Cette fonction permet de rechercher l'astd de nom name dans une liste d'astd donnée
+Arguments :
+- stateList : La liste des astd dans laquelle rechercher l'astd
+- name : le nom de l'astd qu'on recherche
+*)
+
 let rec getAstdFromStateList stateList name = match stateList with
   |[] -> raise NotFound
   |astd::tail -> match astd with
     |Elem s -> if s = name then Elem s else getAstdFromStateList tail name
     |Automaton (nameAstd,_,_,_,_,_) -> if name = nameAstd then astd else getAstdFromStateList tail name;;
 
-let rec getAstdFromName nameAstd astd = match astd with
+(*
+Fonction getAstdFromName
+Objectif : Cette fonction permet de rechercher l'astd de nom nameAstd parmis les sous astd d'un astd.
+Arguments :
+- nameAstd : le nom de l'astd qu'on recherche
+- astd : l'astd dans lequel on le recherche
+*)
+
+let getAstdFromName nameAstd astd = match astd with
   |Elem s -> raise NotAnAutomaton
   |Automaton (name,stateList,_,_,_,_) -> getAstdFromStateList stateList nameAstd;;
+
+(*
+Fonction getSubPrecondition
+Objectif : Cette fonction permet à partir d'une liste de couple (astd,état) d'écrire la condition selon laquelle l'ensemble des astd sont dans les états correspondants
+Arguments :
+- sub : liste de paire (astd,etat) qui permet d'écrire la précondition selon laquelle tous les astd de la liste sont dans les états etat.
+*)
+
+
+let rec getSubPrecondition sub = match sub with
+  |[] -> raise NoPrecondition
+  |[(astd,state)] -> Comparison ("State_" ^ astd,[],state)
+  |(astd,state)::tail -> And (Comparison ("State_" ^ astd,[],state),getSubPrecondition tail);;
 
 (*
 Fonction addOpToOpList :
@@ -104,7 +150,7 @@ Arguments :
 - trans : la transition issue de la liste des transition de l'ASTD
 *)
 
-let addOpToOpList nameAstd trans opList astd = match trans with
+let addOpToOpList nameAstd trans opList astd sub= match trans with
   |Loc (name,param,from,toS,gu,finale) -> 
     let pre = (if gu = ""
       then
@@ -113,6 +159,9 @@ let addOpToOpList nameAstd trans opList astd = match trans with
 	And (Guard gu,Comparison("State_" ^ nameAstd,[],from))) in
     let pre = if finale then And (final (getAstdFromName from astd) from,pre)
       else pre
+    in
+    let pre = try And (pre,getSubPrecondition sub) with
+      |NoPrecondition -> pre
     in
     let post = AffectationSub [VarAffect ("State_" ^ nameAstd,[],toS)] in
     addOpToOpList_aux name param pre post opList
@@ -150,17 +199,31 @@ Argument :
 - nameAstd : Le nom de l'ASTD dans lequel on veut récupérer les transitions
 - transList : la liste des transition de cet ASTD
 - opList : La liste de opérations qu'on souhaite construire
+- sub : Liste d'astd et d'état correspondant à l'état dans lequel sont tous les astd supérieurs contenant l'astd lu
 *)
 
-let rec getOperationList nameAstd transList opList astd = match transList with
+let rec getOperationList nameAstd transList opList astd sub= match transList with
   |[] -> opList
-  |trans::tail -> getOperationList nameAstd tail (addOpToOpList nameAstd trans opList astd) astd;;
+  |trans::tail -> getOperationList nameAstd tail (addOpToOpList nameAstd trans opList astd sub) astd sub;;
+
+(*
+Fonction initOf
+Objectif : Récupérer l'état initial d'un astd
+
 
 let rec initOf exp nameOfSAstd initStateVal = match exp with
   |And (exp1,exp2) -> And (initOf exp1 nameOfSAstd initStateVal,initOf exp2 nameOfSAstd initStateVal)
   |Or (exp1,exp2) -> Or (initOf exp1 nameOfSAstd initStateVal,initOf exp2 nameOfSAstd initStateVal)
   |Guard gu -> Guard gu
   |Comparison (name,param,value) -> if name = "State_" ^ nameOfSAstd then Comparison (initStateVal,[],value) else Comparison (name,param,value);;
+*)
+
+(*
+Fonction getInitOf
+Objectif : fonction récupérant l'astd correspondant à l'état initial d'un astd.
+Arguments :
+-astd : l'astd dont on souhaite récupérer l'état inital
+*)
 
 let rec getInitOf astd = match astd with
   |Elem e -> Elem e
@@ -168,21 +231,49 @@ let rec getInitOf astd = match astd with
   |QSynch (_,_,_,_,sastd) -> getInitOf sastd
   |Kleene (_,sastd) -> getInitOf sastd;;
 
+(*
+Fonction getInitNameOf
+Objectif : Cette fonction récupère le nom de l'état inital d'un astd.
+Arguments :
+- astd : l'astd dont on souhaite récupérer l'état inital.
+*)
+
+
 let getInitNameOf astd = getNameOf (getInitOf astd);;
 
-let rec traduction_aux astd nameAstdSup setsList varList opeList= match astd with
+(*
+Fonction traduction_aux :
+Ojectif : Fonction auxiliaire permettant de traduire un astd en un ensemble de listes permettant ensuite de les mettre sur un format correspondant au fichier B.
+Arguments :
+- astd : l'ASTD qu'on souhaite traduire
+- nameAstdSup : le nom de l'astd dans lequel se trouve le sous astd qu'on traduit
+- setsList : liste correspondant aux ensemble (nécessaire pour la clause SET en B)
+-varList : liste correspondant aux variables (nécessaire pour les clauses VARIABLE, INVARIANT et INITIALISATION en B)
+- opeList : liste correspondant aux opérations B (contenant des couples (precondition,postcondition))
+- sub : liste de paire astd,etat correspondant à l'état correpondant à l'astd courant dans son sur-astd
+*)
+
+
+let rec traduction_aux astd nameAstdSup setsList varList opeList sub= match astd with
   |Elem e -> (addSetToSetList nameAstdSup e setsList),varList,opeList
   |Automaton (name,stateList,transitionList,sfList,dfList,initialState) ->
     let (setsListInd,varListInd,opeListInd) =
-      traductionStateList stateList name setsList varList opeList in
+      traductionStateList stateList name setsList varList opeList sub in
       ((addSetToSetList nameAstdSup name setsListInd),
       (addVarToVarList name varListInd (getNameOf initialState)),
-      (getOperationList name transitionList opeListInd astd))
-and traductionStateList stateList nameAstdSup setsList varList opeList = match stateList with
+      (getOperationList name transitionList opeListInd astd ((nameAstdSup,name)::sub)))
+and traductionStateList stateList nameAstdSup setsList varList opeList sub= match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =
-		   traductionStateList tail nameAstdSup setsList varList opeList in
-		 traduction_aux head nameAstdSup setsListInd varListInd opeListInd;;
+		   traductionStateList tail nameAstdSup setsList varList opeList  sub in
+		 traduction_aux head nameAstdSup setsListInd varListInd opeListInd sub;;
+
+(*
+Fonction getInfoFromVarList
+Objectif : transformer les informations de varList obtenues grace à la fonction traduction_aux en trois liste correspondant aux variables, au invariants et à l'initialisation
+Arguments :
+varList : liste de triplets (variable,paramètres,type,init value)
+*)
 
 let rec getInfoFromVarList varList = match varList with
   |[] -> [],[],[]
@@ -192,7 +283,7 @@ let rec getInfoFromVarList varList = match varList with
 
 let traduction astd machineName= 
   let 
-      setsList,varList,opeList = traduction_aux astd (getNameOf astd) [] [] []
+      setsList,varList,opeList = traduction_aux astd (getNameOf astd) [] [] [] []
   in
   let varList,invList,initList = getInfoFromVarList varList in
   {machine = machineName;
