@@ -94,12 +94,17 @@ name : le nom de l'astd dont on cherche l'état final
 
 let rec final astd name = match astd with
   |Elem s -> Comparison (("State_" ^ name),[],s)
-  |Automaton (nameAstd,_,_,fState,dFState,_) -> match (fState,dFState) with
-    |[],[] -> raise NoFinalState
-    |[],listDFState -> getFinalFromFinalStateList listDFState nameAstd
-    |listFState, [] -> getFinalFromFinalStateList listFState nameAstd
-    |fState,dFState -> And (getFinalFromFinalStateList fState nameAstd,getFinalFromFinalStateList dFState nameAstd)
+  |Automaton (nameAstd,_,_,fState,dFState,_) -> 
+    begin
+      match (fState,dFState) with
+      |[],[] -> raise NoFinalState
+      |[],listDFState -> getFinalFromFinalStateList listDFState nameAstd
+      |listFState, [] -> getFinalFromFinalStateList listFState nameAstd
+      |fState,dFState -> And (getFinalFromFinalStateList fState nameAstd,getFinalFromFinalStateList dFState nameAstd)
+    end
+  |Kleene (name,astd) -> Or (Comparison ("StateKleene_" ^ name,[],"notstarted"),final astd (getNameOf astd))
 and getFinalFromFinalStateList fStateList name = match fStateList with
+  |[] -> failwith "No Final State"
   |[fState] -> final fState name
   |head::tail -> And (final head name,getFinalFromFinalStateList tail name);;
 
@@ -241,6 +246,16 @@ Arguments :
 
 let getInitNameOf astd = getNameOf (getInitOf astd);;
 
+let rec addKleeneSet setList = match setList with
+  |[] -> ["KleeneState",["started";"notstarted"]]
+  |(name,stateList)::q -> if name = "KleeneState" then setList else (name,stateList)::(addKleeneSet q);;
+
+let rec addKleeneVariable varList name = match varList with
+  |[] -> ["StateKleene_" ^ name,[],"KleeneState","notstarted"]
+  |t::q -> t::(addKleeneVariable q name);;
+
+let rec modifiyKleeneOperation opeList = opeList;;
+
 (*
 Fonction traduction_aux :
 Ojectif : Fonction auxiliaire permettant de traduire un astd en un ensemble de listes permettant ensuite de les mettre sur un format correspondant au fichier B.
@@ -261,7 +276,13 @@ let rec traduction_aux astd nameAstdSup setsList varList opeList sub= match astd
       traductionStateList stateList name setsList varList opeList sub in
       ((addSetToSetList nameAstdSup name setsListInd),
       (addVarToVarList name varListInd (getNameOf initialState)),
-      (getOperationList name transitionList opeListInd astd ((nameAstdSup,name)::sub)))
+      (getOperationList name transitionList opeListInd astd (if name = nameAstdSup then sub else (nameAstdSup,name)::sub)))
+  |Kleene (nameKl,astdKl) -> 
+    let (setsListInd,varListInd,opeListInd) =
+      traduction_aux astdKl (getNameOf astdKl) setsList varList opeList sub in
+    (addKleeneSet setsListInd,
+     addKleeneVariable varListInd nameKl,
+     modifiyKleeneOperation opeListInd)
 and traductionStateList stateList nameAstdSup setsList varList opeList sub= match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =
