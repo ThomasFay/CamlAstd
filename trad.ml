@@ -254,7 +254,37 @@ let rec addKleeneVariable varList name = match varList with
   |[] -> ["StateKleene_" ^ name,[],"KleeneState","notstarted"]
   |t::q -> t::(addKleeneVariable q name);;
 
-let rec modifiyKleeneOperation opeList = opeList;;
+let rec modifyInitBPre pre initialState name = match pre with
+  |Comparison (varName,_,value) -> if "State_" ^ name = varName
+    then
+      Comparison((getNameOf initialState),[],value)
+    else
+      pre
+  |And (expr1,expr2) -> And((modifyInitBPre expr1 initialState name),
+			    (modifyInitBPre expr2 initialState name))
+  |Or (expr1,expr2) -> Or((modifyInitBPre expr1 initialState name),
+			  (modifyInitBPre expr2 initialState name))
+  |expr -> expr;;
+
+let rec modifyInitBPost post initialState name = match post with
+  |AffectationSub l -> AffectationSub l
+  |Select l -> Select (modifySelectList l initialState name)
+  |Parallel (sub1,sub2) -> Parallel (modifyInitBPost sub1 initialState name,
+				    modifyInitBPost sub2 initialState name)
+and modifySelectList l initialState name = match l with
+  |[] -> []
+  |(expr,sub)::q -> (modifyInitBPre expr initialState name,modifyInitBPost sub initialState name)::modifySelectList q initialState name;;
+
+let rec modifyKleenePost post nameK nameS c1 initialState pre= Parallel (AffectationSub [VarAffect ("StateKleene_" ^ nameK,[],"started")],Select([(c1,modifyInitBPost post initialState nameS );(pre,post)]));;
+
+let modifyKleeneOperation ope sAstd nameKleeneAstd = 
+  let name,param,pre,post = ope in
+  let c1 = And (Or (final sAstd (getNameOf sAstd),Comparison ("StateKleene_" ^ name,[],"notstarted")),modifyInitBPre pre (getInitOf sAstd) (getNameOf sAstd)) in
+  (name,param,Or (c1,pre),modifyKleenePost post nameKleeneAstd (getNameOf sAstd) c1 (getInitOf sAstd) pre)
+
+let rec modifyKleeneOperationList opeList sAstd name = match opeList with
+  |[] -> []
+  |h::t -> (modifyKleeneOperation h sAstd name) :: (modifyKleeneOperationList t sAstd name);;
 
 (*
 Fonction traduction_aux :
@@ -282,7 +312,7 @@ let rec traduction_aux astd nameAstdSup setsList varList opeList sub= match astd
       traduction_aux astdKl (getNameOf astdKl) setsList varList opeList sub in
     (addKleeneSet setsListInd,
      addKleeneVariable varListInd nameKl,
-     modifiyKleeneOperation opeListInd)
+     modifyKleeneOperationList opeListInd astdKl nameKl)
 and traductionStateList stateList nameAstdSup setsList varList opeList sub= match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =

@@ -27,7 +27,8 @@ type affectation =
 
 type substitution =
 |AffectationSub of affectation list
-|Select of (expression * substitution) list;;
+|Select of (expression * substitution) list
+|Parallel of substitution * substitution;;
 
 (*Définition d'une opération qui a
 -un nom (string)
@@ -156,7 +157,8 @@ let rec printSelect n clause = match clause with
   |(cond,action)::tail -> printTab n ^ "WHEN\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail
 and printThen n thenn = match thenn with
   |AffectationSub l -> printAffectationList n l
-  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail ^ printTab n ^ "END\n";;
+  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail ^ printTab n ^ "END\n"
+  |Parallel (sub1,sub2) -> printThen n sub1 ^ "||\n" ^ printThen n sub2;;
 
 
 (*Affiche une opération simple*)
