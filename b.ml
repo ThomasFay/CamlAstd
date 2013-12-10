@@ -6,10 +6,12 @@ type expression =
 |And of (expression * expression)
 |Or of (expression * expression)
 |Guard of string
-|Comparison of (string * string list * string)
+|ComparisonVar of (string * string list * string)
+|ComparisonVal of (string * string)
 |ForAll of string list * expression * expression
 |Exists of string list * expression
-|In of string * string;;
+|In of string * string
+|None;;
 
 type relation =
 |Name of string
@@ -123,12 +125,14 @@ let rec printExpr n expr = match expr with
   |And (p1,p2) -> "(" ^ printExpr n p1 ^ " &\n" ^  printExpr n p2 ^ ")"
   |Or (p1,p2) ->  "(" ^ printExpr n p1 ^  " or\n"  ^ printExpr n p2 ^ ")"
   |Guard g -> printTab n ^ g
-  |Comparison (var,params,value) -> (match params with
+  |ComparisonVar (var,params,value) -> (match params with
     |[] -> printTab n ^ var ^ " = " ^ value
     |h::t -> printTab n ^ var ^ "(" ^ printParams params ^ ") = " ^ value)
+  |ComparisonVal (value1,value2) -> printTab n ^ value1 ^ " = " ^ value2
   |Exists (vars,expression) -> printTab n ^ "#(" ^ printParams vars ^ ").\n(" ^ printExpr n expression ^ ")"
   |ForAll (vars,expr1,expr2) -> printTab n ^ "!(" ^ printParams vars ^ ").\n" ^ printTab n ^ "(" ^ printExpr n expr1^ " =>\n" ^ printExpr n expr2 ^ ")"
   |In (var,set) -> var ^ " : " ^ set
+  |None -> ""
 
 let rec printRelation rel = match rel with
   |Name s -> s
@@ -149,7 +153,7 @@ let rec printAffectation affect n = match affect with
 
 let rec printAffectationList n l = match l with
   |[] -> ""
-  |[t] -> printAffectation t n ^ "\n"
+  |[t] -> printAffectation t n
   |head::tail -> printAffectation head n ^ " ||\n" ^ printAffectationList n tail;;
 
 let rec printSelect n clause = match clause with
@@ -157,8 +161,8 @@ let rec printSelect n clause = match clause with
   |(cond,action)::tail -> printTab n ^ "WHEN\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail
 and printThen n thenn = match thenn with
   |AffectationSub l -> printAffectationList n l
-  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ printSelect n tail ^ printTab n ^ "END\n"
-  |Parallel (sub1,sub2) -> printThen n sub1 ^ "||\n" ^ printThen n sub2;;
+  |Select ((cond,action)::tail) -> printTab n ^ "SELECT\n" ^ printExpr (n+1) cond ^ "\n" ^ printTab n ^ "THEN\n" ^ printThen (n+1) action ^ "\n" ^ printSelect n tail ^ printTab n ^ "END\n"
+  |Parallel (sub1,sub2) -> printThen n sub1 ^ " ||\n" ^ printThen n sub2;;
 
 
 (*Affiche une opération simple*)

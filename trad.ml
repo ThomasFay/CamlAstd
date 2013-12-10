@@ -84,6 +84,17 @@ let rec isInList name liste = match liste with
   |head::tail -> head = name or isInList name tail;;
 *)
 
+let rec addVarToExpr exp var = match exp with
+  |And (ex1,ex2) -> And ((addVarToExpr ex1 var),(addVarToExpr ex2 var))
+  |Or (ex1,ex2) -> Or ((addVarToExpr ex1 var),(addVarToExpr ex2 var))
+  |Guard gu -> Guard gu
+  |ComparisonVar (name,args,value) -> ComparisonVar (name,var::args,value)
+  |ComparisonVal (name,value) -> ComparisonVal (name,value)
+  |ForAll (vars,expr1,expr2) -> ForAll (var::vars,addVarToExpr expr1 var,addVarToExpr expr2 var)
+  |Exists (vars,expr) -> Exists (var::vars,addVarToExpr expr var)
+  |In (var,typ) -> In (var,typ)
+  |None -> None;;
+
 (*
 Fonction final 
 Objectif : L'objectif de cette fonction est de renvoyer pour un astd l'expression qui exprime le fait que cet astd soit final.
@@ -93,7 +104,7 @@ name : le nom de l'astd dont on cherche l'état final
 *)
 
 let rec final astd name = match astd with
-  |Elem s -> Comparison (("State_" ^ name),[],s)
+  |Elem s -> ComparisonVar (("State_" ^ name),[],s)
   |Automaton (nameAstd,_,_,fState,dFState,_) -> 
     begin
       match (fState,dFState) with
@@ -102,11 +113,13 @@ let rec final astd name = match astd with
       |listFState, [] -> getFinalFromFinalStateList listFState nameAstd
       |fState,dFState -> And (getFinalFromFinalStateList fState nameAstd,getFinalFromFinalStateList dFState nameAstd)
     end
-  |Kleene (name,astd) -> Or (Comparison ("StateKleene_" ^ name,[],"notstarted"),final astd (getNameOf astd))
+  |Kleene (name,astd) -> Or (ComparisonVar ("StateKleene_" ^ name,[],"notstarted"),final astd (getNameOf astd))
+  |QSynch (name,var,varType,delta,astd) -> ForAll ([var],In (var,varType),addVarToExpr (final astd (getNameOf astd)) var)
 and getFinalFromFinalStateList fStateList name = match fStateList with
   |[] -> failwith "No Final State"
   |[fState] -> final fState name
   |head::tail -> And (final head name,getFinalFromFinalStateList tail name);;
+
 
 (*
 Fonction getAstdFromStateListe
@@ -144,8 +157,8 @@ Arguments :
 
 let rec getSubPrecondition sub = match sub with
   |[] -> raise NoPrecondition
-  |[(astd,state)] -> Comparison ("State_" ^ astd,[],state)
-  |(astd,state)::tail -> And (Comparison ("State_" ^ astd,[],state),getSubPrecondition tail);;
+  |[(astd,state)] -> ComparisonVar ("State_" ^ astd,[],state)
+  |(astd,state)::tail -> And (ComparisonVar ("State_" ^ astd,[],state),getSubPrecondition tail);;
 
 (*
 Fonction addOpToOpList :
@@ -159,9 +172,9 @@ let addOpToOpList nameAstd trans opList astd sub= match trans with
   |Loc (name,param,from,toS,gu,finale) -> 
     let pre = (if gu = ""
       then
-	  Comparison ("State_" ^ nameAstd,[],from)
+	  ComparisonVar ("State_" ^ nameAstd,[],from)
       else
-	And (Guard gu,Comparison("State_" ^ nameAstd,[],from))) in
+	And (Guard gu,ComparisonVar("State_" ^ nameAstd,[],from))) in
     let pre = if finale then And (final (getAstdFromName from astd) from,pre)
       else pre
     in
@@ -173,9 +186,9 @@ let addOpToOpList nameAstd trans opList astd sub= match trans with
   |Tsub (name,param,from,toSup,toState,gu,finale) ->
     let pre = (if gu = ""
       then
-	Comparison ("State_" ^ nameAstd,[],from)
+	ComparisonVar ("State_" ^ nameAstd,[],from)
       else
-	And (Guard gu,Comparison ("State_" ^ nameAstd,[],from)))
+	And (Guard gu,ComparisonVar ("State_" ^ nameAstd,[],from)))
     in
     let pre = if finale then And (final (getAstdFromName from astd) from, pre)
       else pre
@@ -186,9 +199,9 @@ let addOpToOpList nameAstd trans opList astd sub= match trans with
   |Fsub (name,param,fromSup,fromState,toS,gu,finale) ->
     let pre = (if gu = ""
       then
-	And (Comparison ("State_" ^ nameAstd,[],fromSup),(Comparison ("State_" ^ fromSup,[],fromState)))
+	And (ComparisonVar ("State_" ^ nameAstd,[],fromSup),(ComparisonVar ("State_" ^ fromSup,[],fromState)))
       else
-	And (Guard gu,And (Comparison ("State_" ^ nameAstd,[],fromSup),(Comparison ("State_" ^ fromSup,[],fromState)))))
+	And (Guard gu,And (ComparisonVar ("State_" ^ nameAstd,[],fromSup),(ComparisonVar ("State_" ^ fromSup,[],fromState)))))
     in
     let pre = if finale then And (final (getAstdFromName fromState (getAstdFromName fromSup astd)) fromState,pre)
       else pre
@@ -255,9 +268,9 @@ let rec addKleeneVariable varList name = match varList with
   |t::q -> t::(addKleeneVariable q name);;
 
 let rec modifyInitBPre pre initialState name = match pre with
-  |Comparison (varName,_,value) -> if "State_" ^ name = varName
+  |ComparisonVar (varName,_,value) -> if "State_" ^ name = varName
     then
-      Comparison((getNameOf initialState),[],value)
+      ComparisonVal((getNameOf initialState),value)
     else
       pre
   |And (expr1,expr2) -> And((modifyInitBPre expr1 initialState name),
@@ -279,12 +292,61 @@ let rec modifyKleenePost post nameK nameS c1 initialState pre= Parallel (Affecta
 
 let modifyKleeneOperation ope sAstd nameKleeneAstd = 
   let name,param,pre,post = ope in
-  let c1 = And (Or (final sAstd (getNameOf sAstd),Comparison ("StateKleene_" ^ name,[],"notstarted")),modifyInitBPre pre (getInitOf sAstd) (getNameOf sAstd)) in
+  let c1 = And (Or (final sAstd (getNameOf sAstd),ComparisonVar ("StateKleene_" ^ name,[],"notstarted")),modifyInitBPre pre (getInitOf sAstd) (getNameOf sAstd)) in
   (name,param,Or (c1,pre),modifyKleenePost post nameKleeneAstd (getNameOf sAstd) c1 (getInitOf sAstd) pre)
 
 let rec modifyKleeneOperationList opeList sAstd name = match opeList with
   |[] -> []
   |h::t -> (modifyKleeneOperation h sAstd name) :: (modifyKleeneOperationList t sAstd name);;
+
+let rec addParamToVarList varList paramType = match varList with
+  |[] -> []
+  |(var,params,types,initValue)::q -> (var,paramType::params,types,initValue)::(addParamToVarList q paramType);;
+
+let rec modifyAffListNonSynch affList var = match affList with
+  |[] -> []
+  |VarAffect (variable,params,value)::tail -> (VarAffect (variable,var::params,value))::(modifyAffListNonSynch tail var)
+  |head::tail -> head::(modifyAffListNonSynch tail var);;
+
+
+let rec modifyPostNonSynch post var = match post with
+  |AffectationSub affList -> AffectationSub (modifyAffListNonSynch affList var)
+  |Select selectList -> Select (modifySelectListNonSynch selectList var)
+  |Parallel (sub1,sub2) -> Parallel (modifyPostNonSynch sub1 var,modifyPostNonSynch sub2 var)
+and modifySelectListNonSynch selectList var = match selectList with
+  |[] -> []
+  |(cond,sub) :: tail -> (addVarToExpr cond var,modifyPostNonSynch sub var)::(modifySelectListNonSynch tail var);;
+
+let rec addVarToRelAffect name value cond listAffect var varType= match listAffect with
+  |[] -> [RelAffect (Name name,OverLoad (Name name,Lambda (var,And (In (var,varType),addVarToExpr cond var),value)))]
+  |(RelAffect (rel1,rel2))::tail -> (match rel1 with
+    |Name s -> if s = name then RelAffect(rel1,OverLoad (rel2,Lambda (var,And (In (var,varType),addVarToExpr cond var),value)))::tail else RelAffect (rel1,rel2)::(addVarToRelAffect name value cond tail var varType)
+    |_ -> failwith "bad Relation")
+  |_ -> failwith "bad Relation";;    
+
+let rec modifyAffList aff cond listAffect var varType= match aff with
+  |[] -> listAffect
+  |VarAffect (name,params,value)::tail -> modifyAffList tail cond (addVarToRelAffect name value cond listAffect var varType) var varType
+  |RelAffect _::tail -> failwith "Affectation contradictoire";;
+
+let rec modifyPostSynch_aux post listAffect cond var varType = match post with
+  |AffectationSub aff -> modifyAffList aff cond listAffect var varType
+  |Select l -> modifySelectSynch l listAffect cond var varType
+  |Parallel (sub1,sub2) -> (modifyPostSynch_aux sub1 listAffect cond var varType)@(modifyPostSynch_aux sub2 listAffect cond var varType)
+and modifySelectSynch l listAffect cond var varType = match l with
+  |[] -> listAffect
+  |head::tail -> let (expr,sub) = head in (modifyPostSynch_aux sub listAffect (And (expr,cond)) var varType)@(modifySelectSynch tail listAffect cond var varType);;
+
+let modifyPostSynch post var varType = AffectationSub (modifyPostSynch_aux post [] None var varType);;
+
+let modifyOpSynch op var varType = let (name,params,pre,post) = op in
+(name,params,ForAll ([var],In (var,varType),addVarToExpr pre var),modifyPostSynch post  var varType);;
+
+let rec modifyOpNonSynch op var = let name,params,pre,post = op in (name,params,addVarToExpr pre var,modifyPostNonSynch post var);;
+
+let rec addParamToOpList opList delta var varType = match opList with
+  |[] -> []
+  |op::tail -> (if (let (name,params,pre,post) = op in inList name delta) then (modifyOpSynch op var varType) else (modifyOpNonSynch op var))::(addParamToOpList tail delta var varType);;
 
 (*
 Fonction traduction_aux :
@@ -313,6 +375,12 @@ let rec traduction_aux astd nameAstdSup setsList varList opeList sub= match astd
     (addKleeneSet setsListInd,
      addKleeneVariable varListInd nameKl,
      modifyKleeneOperationList opeListInd astdKl nameKl)
+  |QSynch (name,var,varType,delta,astd) -> 
+    let (setsListInd,varListInd,opListInd) =
+      traduction_aux astd (getNameOf astd) setsList varList opeList sub in
+    ((varType,[])::setsListInd,
+     addParamToVarList varListInd varType,
+     addParamToOpList opListInd delta var varType)
 and traductionStateList stateList nameAstdSup setsList varList opeList sub= match stateList with
   |[] -> setsList,varList,opeList
   |head::tail -> let (setsListInd,varListInd,opeListInd) =
